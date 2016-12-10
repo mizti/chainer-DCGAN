@@ -2,7 +2,8 @@ import pickle
 import numpy as np
 from PIL import Image
 import os
-from StringIO import StringIO
+#from StringIO import StringIO
+import io
 import math
 import pylab
 
@@ -37,14 +38,13 @@ image_save_interval = 50000
 # read all images
 
 fs = os.listdir(image_dir)
-print len(fs)
 dataset = []
 for fn in fs:
     f = open('%s/%s'%(image_dir,fn), 'rb')
     img_bin = f.read()
     dataset.append(img_bin)
     f.close()
-print len(dataset)
+print(len(dataset))
 
 class ELU(function.Function):
 
@@ -159,14 +159,17 @@ def train_dcgan_labeled(gen, dis, epoch0=0):
     o_gen.add_hook(chainer.optimizer.WeightDecay(0.00001))
     o_dis.add_hook(chainer.optimizer.WeightDecay(0.00001))
 
-    zvis = (xp.random.uniform(-1, 1, (100, nz), dtype=np.float32))
+    #zvis = (xp.random.uniform(-1, 1, (100, nz), dtype=np.float32))
+    zvis = np.random.uniform(-1, 1, (100, nz)).astype('float32')
     
-    for epoch in xrange(epoch0,n_epoch):
+    #for epoch in xrange(epoch0,n_epoch):
+    for epoch in range(epoch0,n_epoch):
         perm = np.random.permutation(n_train)
         sum_l_dis = np.float32(0)
         sum_l_gen = np.float32(0)
         
-        for i in xrange(0, n_train, batchsize):
+        #for i in xrange(0, n_train, batchsize):
+        for i in range(0, n_train, batchsize):
             # discriminator
             # 0: from dataset
             # 1: from noise
@@ -178,27 +181,30 @@ def train_dcgan_labeled(gen, dis, epoch0=0):
                     rnd = np.random.randint(len(dataset))
                     rnd2 = np.random.randint(2)
 
-                    img = np.asarray(Image.open(StringIO(dataset[rnd])).convert('RGB')).astype(np.float32).transpose(2, 0, 1)
+                    img = np.asarray(Image.open(io.BytesIO(dataset[rnd])).convert('RGB')).astype(np.float32).transpose(2, 0, 1)
                     if rnd2==0:
                         x2[j,:,:,:] = (img[:,:,::-1]-128.0)/128.0
                     else:
                         x2[j,:,:,:] = (img[:,:,:]-128.0)/128.0
                 except:
-                    print 'read image error occured', fs[rnd]
+                    print('read image error occured', fs[rnd])
             #print "load image done"
             
             # train generator
-            z = Variable(xp.random.uniform(-1, 1, (batchsize, nz), dtype=np.float32))
+            #z = Variable(xp.random.uniform(-1, 1, (batchsize, nz), dtype=np.float32))
+            z = Variable(np.random.uniform(-1, 1, (batchsize, nz)).astype('float32'))
             x = gen(z)
             yl = dis(x)
-            L_gen = F.softmax_cross_entropy(yl, Variable(xp.zeros(batchsize, dtype=np.int32)))
-            L_dis = F.softmax_cross_entropy(yl, Variable(xp.ones(batchsize, dtype=np.int32)))
-            
+            # L_gen = F.softmax_cross_entropy(yl, Variable(xp.zeros(batchsize, dtype=np.int32)))
+            # L_dis = F.softmax_cross_entropy(yl, Variable(xp.ones(batchsize, dtype=np.int32)))
+            L_gen = F.softmax_cross_entropy(yl, Variable(np.zeros(batchsize).astype('int32')))
+            L_dis = F.softmax_cross_entropy(yl, Variable(np.ones(batchsize).astype('int32')))
             # train discriminator
-                    
-            x2 = Variable(cuda.to_gpu(x2))
+            #x2 = Variable(cuda.to_gpu(x2))
+            x2 = Variable(cuda.to_cpu(x2))
             yl2 = dis(x2)
-            L_dis += F.softmax_cross_entropy(yl2, Variable(xp.zeros(batchsize, dtype=np.int32)))
+            # L_dis += F.softmax_cross_entropy(yl2, Variable(xp.zeros(batchsize, dtype=np.int32)))
+            L_dis += F.softmax_cross_entropy(yl2, Variable(np.zeros(batchsize).astype('int32')))
             
             #print "forward done"
 
@@ -210,8 +216,10 @@ def train_dcgan_labeled(gen, dis, epoch0=0):
             L_dis.backward()
             o_dis.update()
             
-            sum_l_gen += L_gen.data.get()
-            sum_l_dis += L_dis.data.get()
+            #sum_l_gen += L_gen.data.get()
+            #sum_l_dis += L_dis.data.get()
+            sum_l_gen += L_gen.data
+            sum_l_dis += L_dis.data
             
             #print "backward done"
 
@@ -220,10 +228,12 @@ def train_dcgan_labeled(gen, dis, epoch0=0):
                 pylab.clf()
                 vissize = 100
                 z = zvis
-                z[50:,:] = (xp.random.uniform(-1, 1, (50, nz), dtype=np.float32))
+                #z[50:,:] = (xp.random.uniform(-1, 1, (50, nz), dtype=np.float32))
+                z[50:,:] = (np.random.uniform(-1, 1, (50, nz)).astype('float32'))
                 z = Variable(z)
                 x = gen(z, test=True)
-                x = x.data.get()
+                #x = x.data.get()
+                x = x.data
                 for i_ in range(100):
                     tmp = ((np.vectorize(clip_img)(x[i_,:,:,:])+1)/2).transpose(1,2,0)
                     pylab.subplot(10,10,i_+1)
@@ -235,17 +245,20 @@ def train_dcgan_labeled(gen, dis, epoch0=0):
         serializers.save_hdf5("%s/dcgan_model_gen_%d.h5"%(out_model_dir, epoch),gen)
         serializers.save_hdf5("%s/dcgan_state_dis_%d.h5"%(out_model_dir, epoch),o_dis)
         serializers.save_hdf5("%s/dcgan_state_gen_%d.h5"%(out_model_dir, epoch),o_gen)
-        print 'epoch end', epoch, sum_l_gen/n_train, sum_l_dis/n_train
+        print('epoch end', epoch, sum_l_gen/n_train, sum_l_dis/n_train)
 
 
 
-xp = cuda.cupy
-cuda.get_device(0).use()
+#xp = cuda.cupy
+#xp = numpy
+#cuda.get_device(0).use()
 
 gen = Generator()
 dis = Discriminator()
-gen.to_gpu()
-dis.to_gpu()
+#gen.to_gpu()
+#dis.to_gpu()
+gen.to_cpu()
+dis.to_cpu()
 
 
 try:
